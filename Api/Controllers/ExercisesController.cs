@@ -21,7 +21,7 @@ public class ExercisesController : ControllerBase
     }
 
     [HttpGet("historical")]
-    [ProducesResponseType(typeof(List<PolarExerciseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(List<PolarDetailedExerciseDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -36,7 +36,7 @@ public class ExercisesController : ControllerBase
 
             if (startResponse.StatusCode == System.Net.HttpStatusCode.NoContent)
             {
-                return Ok(new List<PolarExerciseDto>());
+                return Ok(new List<PolarDetailedExerciseDto>());
             }
 
             if (startResponse.StatusCode == System.Net.HttpStatusCode.Conflict)
@@ -66,7 +66,7 @@ public class ExercisesController : ControllerBase
             if (listResponse.StatusCode == System.Net.HttpStatusCode.NoContent)
             {
                 await CloseTransactionAsync(activeTransactionId.Value);
-                return Ok(new List<PolarExerciseDto>());
+                return Ok(new List<PolarDetailedExerciseDto>());
             }
 
             if (!listResponse.IsSuccessStatusCode)
@@ -81,7 +81,7 @@ public class ExercisesController : ControllerBase
             await CloseTransactionAsync(activeTransactionId.Value);
             activeTransactionId = null;
 
-            return Ok(rootData?.Exercises ?? new List<PolarExerciseDto>());
+            return Ok(rootData?.Exercises ?? new List<PolarDetailedExerciseDto>());
         }
         catch (Exception ex)
         {

@@ -35,9 +35,5 @@ public class PolarTransactionResponse
 public class PolarExerciseRootObject
 {
     [JsonPropertyName("exercises")]
-    public List<PolarExerciseDto> Exercises { get; set; } = new();
-}
-
-public class PolarExercisesApiNote
-{
+    public List<PolarDetailedExerciseDto> Exercises { get; set; } = new();
 }
