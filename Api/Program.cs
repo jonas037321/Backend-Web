@@ -39,6 +39,7 @@ if (app.Environment.IsDevelopment())
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<DbManager>();
+    // Keep startup initialization so auth can use DbManager helpers and the users table.
     db.Database.EnsureCreated();
 }
 

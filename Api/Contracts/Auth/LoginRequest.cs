@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Api.Contracts.Auth;
 
-public sealed class RegisterRequest
+public sealed class LoginRequest
 {
     [Required]
     [EmailAddress]
