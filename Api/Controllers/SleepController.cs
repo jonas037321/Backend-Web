@@ -1,7 +1,8 @@
-using System.Net.Http.Headers;
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Models;
+using ORM;
+using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace Api.Controllers;
 
@@ -10,31 +11,54 @@ namespace Api.Controllers;
 public class SleepController : ControllerBase
 {
     private readonly HttpClient _httpClient;
-    private const string AccessToken = "19dca384d80e278f891252bca4d42a0c";
+    private readonly DbManager _dbManager; // 1. DbManager hinzugefügt
+
     private const string PolarUrl = "https://www.polaraccesslink.com/v3/users/sleep";
 
-    public SleepController(IHttpClientFactory httpClientFactory)
+    // 2. DbManager über den Konstruktor injizieren
+    public SleepController(
+        IHttpClientFactory httpClientFactory,
+        DbManager dbManager)
     {
         _httpClient = httpClientFactory.CreateClient();
+        _dbManager = dbManager;
     }
 
-    [HttpGet]
+    // 3. E-Mail als Pfad-Parameter hinzugefügt und 404-Response deklariert
+    [HttpGet("{email}")]
     [ProducesResponseType(typeof(List<PolarSleepNightDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> GetSleepData()
+    public async Task<IActionResult> GetSleepData(string email)
     {
         try
         {
+            // 4. User anhand der E-Mail aus der Datenbank suchen
+            var user = await _dbManager.FindUserByEmailAsync(email);
+
+            if (user == null)
+            {
+                return NotFound("User nicht gefunden");
+            }
+
+            // 5. Dynamisches Access Token aus dem User-Objekt laden
+            var accessToken = user.PolarAccessToken;
+
+            // 6. Request an Polar mit dem dynamischen Token aufbauen
             var request = new HttpRequestMessage(HttpMethod.Get, PolarUrl);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", AccessToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
             var response = await _httpClient.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
-                return StatusCode((int)response.StatusCode, new { error = "Polar API Fehler", details = errorContent });
+                return StatusCode((int)response.StatusCode, new
+                {
+                    error = "Fehler beim Abruf der Schlafdaten von Polar",
+                    details = errorContent
+                });
             }
 
             var jsonString = await response.Content.ReadAsStringAsync();
