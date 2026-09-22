@@ -29,6 +29,19 @@ public class PolarController : ControllerBase
         _dbManager = dbManager;
     }
 
+    [HttpGet("status")]
+    public async Task<IActionResult> Status([FromQuery] string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return BadRequest("E-Mail-Adresse fehlt.");
+
+        var user = await _dbManager.FindUserByEmailAsync(email);
+        if (user == null)
+            return NotFound("User nicht gefunden");
+
+        return Ok(new { connected = !string.IsNullOrEmpty(user.PolarAccessToken) });
+    }
+
     [HttpGet("connect")]
     public IActionResult Connect([FromQuery] string email)
     {
