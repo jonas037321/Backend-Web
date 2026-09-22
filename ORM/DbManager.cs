@@ -24,6 +24,12 @@ public class DbManager : DbContext
         var normalizedEmail = email.Trim().ToLowerInvariant();
         return Users.FirstOrDefaultAsync(user => user.Email.ToLower() == normalizedEmail, cancellationToken);
     }
+    public async Task<User> UpdateUserAsync(User user, CancellationToken cancellationToken = default)
+    {
+        Entry(user).State = EntityState.Modified;
+        await SaveChangesAsync(cancellationToken);
+        return user;
+    }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
