@@ -55,6 +55,12 @@ public class PolarDetailedExerciseDto
     [JsonPropertyName("protein_percentage")]
     public int ProteinPercentage { get; set; }
 
+    [JsonPropertyName("training_load")]
+    public double TrainingLoad { get; set; }
+
+    [JsonPropertyName("running-index")]
+    public int RunningIndex { get; set; }
+
     [JsonPropertyName("training_load_pro")]
     public PolarTrainingLoadDto? TrainingLoadPro { get; set; }
 }
