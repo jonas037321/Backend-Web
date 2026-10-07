@@ -7,6 +7,10 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
+// Polar verlangt bei allen API-Requests einen User-Agent-Header
+builder.Services.ConfigureHttpClientDefaults(httpClientBuilder =>
+    httpClientBuilder.ConfigureHttpClient(client =>
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("PolarHealthCompanion/1.0")));
 
 builder.Services.AddDbContext<DbManager>(options =>
 {
