@@ -36,7 +36,6 @@ public class ActivitiesController : ControllerBase
             }
 
             var accessToken = user.PolarAccessToken;
-            var userId = user.PolarUserId; // falls später benötigt
 
             var request = new HttpRequestMessage(HttpMethod.Get, PolarUrl);
 

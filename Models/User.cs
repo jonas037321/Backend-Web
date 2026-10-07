@@ -1,12 +1,5 @@
 namespace Models;
 
-public enum Gender
-{
-    Male,
-    Female,
-    Other
-}
-
 public class User
 {
     public int Id { get; set; }

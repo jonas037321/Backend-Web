@@ -12,14 +12,11 @@ builder.Services.ConfigureHttpClientDefaults(httpClientBuilder =>
     httpClientBuilder.ConfigureHttpClient(client =>
         client.DefaultRequestHeaders.UserAgent.ParseAdd("PolarHealthCompanion/1.0")));
 
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection fehlt in appsettings.json.");
+
 builder.Services.AddDbContext<DbManager>(options =>
-{
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    if (!string.IsNullOrWhiteSpace(connectionString))
-    {
-        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
-    }
-});
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
 
 builder.Services.AddCors(options =>
