@@ -1,145 +1,67 @@
-# Feature 6 Backend - ASP.NET Core WebAPI
+# Health Companion – Backend
 
-## Übersicht
+ASP.NET Core Web API (.NET 10) für die Health-Companion-App. Verwaltet Benutzer (MySQL) und holt die Daten der Polar-Uhr über die Polar AccessLink API.
 
-Feature 6 Backend ist eine vollständige ASP.NET Core WebAPI mit:
-- **Api**: WebAPI mit Swagger/OpenAPI-Dokumentation
-- **ORM**: Entity Framework Core mit MySQL (Pomelo)
-- **Models**: Gemeinsame Datenmodelle (User, Gender Enum)
-
-## Projektstruktur
+## Projekte
 
 ```
 backend/
-├── Api/                    # ASP.NET Core WebAPI
-│   ├── Controllers/
-│   │   └── UsersController.cs    # REST-Endpoints für User
-│   ├── Program.cs                # Konfiguration + Swagger
-│   └── Api.csproj
-├── ORM/                    # Entity Framework Core Projekt
-│   ├── DbManager.cs              # DbContext + MySQL-Connection
-│   └── ORM.csproj
-├── Models/                 # Gemeinsame Modelle
-│   ├── User.cs                   # User Model + Gender Enum
-│   └── Models.csproj
-└── backend.slnx            # Solution File
+├── Api/      Web API: Controller, Program.cs, appsettings.json
+├── Models/   User + DTOs für die Polar-Antworten
+└── ORM/      DbManager (EF Core DbContext) + Migrationen
 ```
 
-## Installation & Konfiguration
+## Starten
 
-### 1. Abhängigkeiten
-- **.NET 10.0**
-- **MySQL 5.7+** (Verbindung konfiguriert für `localhost`, User: `root`, Passwort: `244466666`)
+Voraussetzungen: .NET 10 SDK und MySQL auf `localhost` mit der Datenbank `HealthCompanion`.
+Die Verbindung steht in `Api/appsettings.json` unter `ConnectionStrings:DefaultConnection`.
 
-### 2. Datenbank erstellen
-```sql
-CREATE DATABASE swp_maui;
-```
-
-### 3. EF Core Migrations ausführen
 ```bash
-cd backend\ORM
-dotnet ef migrations add InitialCreate --project ORM.csproj --startup-project ..\Api\Api.csproj
-dotnet ef database update --project ORM.csproj --startup-project ..\Api\Api.csproj
+dotnet run --project Api/Api.csproj --launch-profile https
 ```
 
-### 4. API starten
+- API: `https://localhost:7262`
+- Swagger: `https://localhost:7262/swagger`
+
+## Endpoints
+
+| Methode | Route | Zweck |
+|---|---|---|
+| POST | `/api/Registration` | User anlegen (Passwort wird gehasht) |
+| POST | `/api/Login` | Login prüfen |
+| GET | `/api/polar/status?email=` | Ist der User mit Polar verbunden? |
+| GET | `/api/polar/connect?email=` | Weiterleitung zum Polar-Login (OAuth) |
+| GET | `/api/polar/callback` | Polar-Rückruf: Token in der DB speichern |
+| GET | `/api/activities/{email}` | Tagesaktivität (letzte 28 Tage) |
+| GET | `/api/physicalinfo/{email}` | Körperdaten |
+| GET | `/api/sleep/{email}` | Schlaf (letzte 5 Nächte) |
+| GET | `/api/nightlyrecharge/{email}` | Nightly Recharge |
+| GET | `/api/exercises/{email}` | Trainings des letzten Monats |
+
+Alle Daten-Endpoints laden den Polar-Token des Users aus der Datenbank und rufen damit die Polar API auf.
+
+## Polar-Konfiguration
+
+Client-ID und Client-Secret stehen **nicht** im Code, sondern in den .NET User-Secrets (pro Rechner, nicht im Repo).
+Die Werte findest du unter [admin.polaraccesslink.com](https://admin.polaraccesslink.com).
+
 ```bash
-cd backend\Api
-dotnet run
+dotnet user-secrets set "Polar:ClientId" "<client-id>" --project Api
+dotnet user-secrets set "Polar:ClientSecret" "<client-secret>" --project Api
 ```
 
-Die API ist dann erreichbar unter:
-- **Swagger UI**: `https://localhost:5001/swagger`
-- **API Root**: `https://localhost:5001`
+Im Polar-Admin muss die Redirect-URL `https://localhost:7262/api/polar/callback` registriert sein.
 
-## API Endpoints
+### OAuth-Ablauf
 
-### Users
-- **GET** `/api/users` - Alle User abrufen
-- **GET** `/api/users/{id}` - User nach ID abrufen
-- **POST** `/api/users` - Neuen User erstellen
-- **PUT** `/api/users/{id}` - User aktualisieren
-- **DELETE** `/api/users/{id}` - User löschen
+1. Frontend leitet auf `/api/polar/connect?email=` weiter.
+2. Backend leitet auf `https://auth.polar.com/oauth/authorize` (V4) weiter, die E-Mail steckt Base64Url-kodiert im `state`.
+3. Polar ruft nach dem Login `/api/polar/callback` mit `code` auf.
+4. Backend tauscht den Code bei `https://auth.polar.com/oauth/token` gegen einen Access-Token, speichert ihn beim User und registriert den User bei AccessLink (`POST /v3/users`).
 
-### Request Body Beispiel (POST/PUT)
-```json
-{
-  "username": "john_doe",
-  "email": "john@example.com",
-  "birthdate": "1990-05-15T00:00:00",
-  "gender": 0,
-  "password": "securePassword123"
-}
-```
+Alle `HttpClient`s schicken den Header `User-Agent: PolarHealthCompanion/1.0` mit (verlangt Polar, siehe `Program.cs`).
 
-**Gender Enum:**
-- `0` = Male
-- `1` = Female
-- `2` = Other
+### Bekanntes Problem
 
-## CORS
-
-Die API erlaubt Anfragen von:
-- `http://localhost:5173` (Vite Dev Server)
-- `http://localhost:3000` (Alternative)
-
-Für Production: `appsettings.json` oder `Program.cs` anpassen.
-
-## NuGet Pakete
-
-- **Microsoft.EntityFrameworkCore**: 9.0.0
-- **Microsoft.EntityFrameworkCore.Tools**: 9.0.0
-- **Pomelo.EntityFrameworkCore.MySql**: 9.0.0
-- **Swashbuckle.AspNetCore**: 6.4.0
-
-## Fehlerbehebung
-
-### Datenbankverbindung schlägt fehl
-- Stelle sicher, dass MySQL läuft
-- Verifiziere die Verbindungszeichenkette in `DbManager.cs`
-- Prüfe Firewall-Einstellungen
-
-### Migrations-Fehler
-```bash
-dotnet ef database drop --project ORM.csproj --startup-project ..\Api\Api.csproj
-dotnet ef database update --project ORM.csproj --startup-project ..\Api\Api.csproj
-```
-
-## Integration mit Vue Frontend
-
-Das Vue Frontend kann über `APIService` mit der API kommunizieren:
-
-```typescript
-import apiService from '@/Services/APIService';
-
-// Beispiel: User erstellen
-const newUser = {
-  username: 'test_user',
-  email: 'test@example.com',
-  birthdate: new Date('1995-01-01'),
-  gender: 0,
-  password: 'password123'
-};
-
-apiService.post('/api/users', newUser)
-  .then(response => console.log('User erstellt:', response))
-  .catch(error => console.error('Fehler:', error));
-```
-
-## Entwicklung
-
-### Hot Reload
-```bash
-cd backend\Api
-dotnet watch
-```
-
-### Tests ausführen
-```bash
-dotnet test
-```
-
----
-
-**Stand**: 28.04.2026 | **Feature**: 6 | **Autor**: Development Team
+Der OAuth-Login bricht aktuell bei Polar nach dem Anmelden mit „Ein unbekannter Fehler ist aufgetreten“ ab, und der Token-Endpoint lehnt die Client-Zugangsdaten mit `401` ab.
+Das ist beim Polar B2B Helpdesk gemeldet (Ticket 5236864).
