@@ -21,10 +21,10 @@ public class PolarController : ControllerBase
     private const string RedirectUri = "https://localhost:7262/api/polar/callback";
     private const string FrontendUrl = "http://localhost:5173";
 
-    // V4-Endpoints laut https://auth.polar.com/.well-known/openid-configuration
-    // (der alte V3-Endpoint flow.polar.com/oauth2/authorization zeigt nur eine Fehlerseite)
-    private const string AuthorizationUrl = "https://auth.polar.com/oauth/authorize";
-    private const string TokenUrl = "https://auth.polar.com/oauth/token";
+    // V3-Flow: nur V3-Tokens funktionieren mit den /v3-Datenendpoints, und nur V3 liefert x_user_id
+    // (V4 wäre auth.polar.com/oauth/authorize + auth.polar.com/oauth/token)
+    private const string AuthorizationUrl = "https://flow.polar.com/oauth2/authorization";
+    private const string TokenUrl = "https://polarremote.com/v2/oauth2/token";
 
     public PolarController(IHttpClientFactory httpClientFactory, DbManager dbManager, IConfiguration configuration)
     {
@@ -114,7 +114,7 @@ public class PolarController : ControllerBase
         var root = doc.RootElement;
         string accessToken = root.GetProperty("access_token").GetString()!;
 
-        // x_user_id kommt bei V3 als Zahl; bei V4 ist das Format nicht dokumentiert
+        // x_user_id liefert nur der V3-Token-Endpoint
         if (!root.TryGetProperty("x_user_id", out var userIdElement) ||
             !long.TryParse(userIdElement.ToString(), out long polarUserId))
         {

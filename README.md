@@ -55,13 +55,12 @@ Im Polar-Admin muss die Redirect-URL `https://localhost:7262/api/polar/callback`
 ### OAuth-Ablauf
 
 1. Frontend leitet auf `/api/polar/connect?email=` weiter.
-2. Backend leitet auf `https://auth.polar.com/oauth/authorize` (V4) weiter, die E-Mail steckt Base64Url-kodiert im `state`.
+2. Backend leitet auf `https://flow.polar.com/oauth2/authorization` (V3) weiter, die E-Mail steckt Base64Url-kodiert im `state`.
 3. Polar ruft nach dem Login `/api/polar/callback` mit `code` auf.
-4. Backend tauscht den Code bei `https://auth.polar.com/oauth/token` gegen einen Access-Token, speichert ihn beim User und registriert den User bei AccessLink (`POST /v3/users`).
+4. Backend tauscht den Code bei `https://polarremote.com/v2/oauth2/token` gegen einen Access-Token, speichert ihn beim User und registriert den User bei AccessLink (`POST /v3/users`).
 
 Alle `HttpClient`s schicken den Header `User-Agent: PolarHealthCompanion/1.0` mit (verlangt Polar, siehe `Program.cs`).
 
-### Bekanntes Problem
+### Warum V3 und nicht V4?
 
-Der OAuth-Login bricht aktuell bei Polar nach dem Anmelden mit „Ein unbekannter Fehler ist aufgetreten“ ab, und der Token-Endpoint lehnt die Client-Zugangsdaten mit `401` ab.
-Das ist beim Polar B2B Helpdesk gemeldet (Ticket 5236864).
+Laut Polar-Support funktionieren V4-Tokens (`auth.polar.com`) **nicht** mit den `/v3`-Datenendpoints, und die V4-Token-Antwort enthält keine `x_user_id`. Deshalb nutzt das Backend den V3-Flow.
