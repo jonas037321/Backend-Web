@@ -135,18 +135,62 @@ public class PolarController : ControllerBase
         return Redirect($"{FrontendUrl}/dashboard?polar=connected");
     }
 
+    [HttpPost("disconnect")]
+    public async Task<IActionResult> Disconnect([FromQuery] string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return BadRequest("E-Mail-Adresse fehlt.");
+
+        var user = await _dbManager.FindUserByEmailAsync(email);
+        if (user == null)
+            return NotFound("User nicht gefunden");
+
+        if (!string.IsNullOrEmpty(user.PolarAccessToken) && !string.IsNullOrEmpty(user.PolarUserId))
+            await DeregisterUserAtPolar(user.PolarAccessToken, user.PolarUserId);
+
+        // Lokal immer trennen, auch wenn Polar den User nicht (mehr) kennt
+        user.PolarAccessToken = null;
+        user.PolarUserId = null;
+        await _dbManager.UpdateUserAsync(user);
+
+        return Ok(new { connected = false });
+    }
+
+    private async Task DeregisterUserAtPolar(string accessToken, string polarUserId)
+    {
+        try
+        {
+            var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"https://www.polaraccesslink.com/v3/users/{polarUserId}");
+            deleteRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            var deleteResponse = await _httpClient.SendAsync(deleteRequest);
+            Console.WriteLine($"Polar Abmeldung: {deleteResponse.StatusCode}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fehler bei der Polar-Abmeldung: {ex.Message}");
+        }
+    }
+
     private async Task RegisterUserAtPolar(string accessToken, long polarUserId)
     {
         try
         {
             var registerRequest = new HttpRequestMessage(HttpMethod.Post, "https://www.polaraccesslink.com/v3/users");
             registerRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            registerRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            var jsonPayload = JsonSerializer.Serialize(new { member_id = polarUserId.ToString() });
+            // Polar erwartet "member-id" (mit Bindestrich), deshalb ein Dictionary statt anonymem Objekt
+            var jsonPayload = JsonSerializer.Serialize(new Dictionary<string, string> { ["member-id"] = polarUserId.ToString() });
             registerRequest.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
             var regResponse = await _httpClient.SendAsync(registerRequest);
-            Console.WriteLine($"Polar Registrierungs-Status: {regResponse.StatusCode}");
+
+            // 409 Conflict = User ist schon registriert, das ist in Ordnung
+            if (regResponse.IsSuccessStatusCode || regResponse.StatusCode == System.Net.HttpStatusCode.Conflict)
+                Console.WriteLine($"Polar Registrierung ok: {regResponse.StatusCode}");
+            else
+                Console.WriteLine($"Polar Registrierung fehlgeschlagen ({(int)regResponse.StatusCode}): {await regResponse.Content.ReadAsStringAsync()}");
         }
         catch (Exception ex)
         {

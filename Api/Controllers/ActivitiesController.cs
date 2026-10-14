@@ -60,6 +60,10 @@ public class ActivitiesController : ControllerBase
 
             var jsonString = await response.Content.ReadAsStringAsync();
 
+            // Polar antwortet mit 204 und leerem Body, wenn es keine Aktivitäten gibt
+            if (string.IsNullOrWhiteSpace(jsonString))
+                return Ok(new List<PolarActivityDto>());
+
             var activities =
                 JsonSerializer.Deserialize<List<PolarActivityDto>>(jsonString);
 
