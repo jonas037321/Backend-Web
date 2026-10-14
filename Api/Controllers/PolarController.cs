@@ -1,200 +1,119 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.WebUtilities;
-using ORM;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Api.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using ORM;
 
 namespace Api.Controllers;
 
+// OAuth-Verbindung zwischen einem User und seinem Polar-Konto (V3-Flow)
 [ApiController]
-[Route("api/[controller]")]
-public class PolarController : ControllerBase
+[Route("api/polar")]
+public class PolarController(DbManager dbManager, PolarClient polarClient, IHttpClientFactory httpClientFactory, IConfiguration configuration)
+    : ControllerBase
 {
-    private readonly HttpClient _httpClient;
-    private readonly DbManager _dbManager;
-
-    // Credentials aus den .NET User-Secrets (dotnet user-secrets set "Polar:ClientSecret" "...")
-    private readonly string _clientId;
-    private readonly string _clientSecret;
-
+    private const string AuthorizationUrl = "https://flow.polar.com/oauth2/authorization";
+    private const string TokenUrl = "https://polarremote.com/v2/oauth2/token";
     private const string RedirectUri = "https://localhost:7262/api/polar/callback";
     private const string FrontendUrl = "http://localhost:5173";
 
-    // V3-Flow: nur V3-Tokens funktionieren mit den /v3-Datenendpoints, und nur V3 liefert x_user_id
-    // (V4 wäre auth.polar.com/oauth/authorize + auth.polar.com/oauth/token)
-    private const string AuthorizationUrl = "https://flow.polar.com/oauth2/authorization";
-    private const string TokenUrl = "https://polarremote.com/v2/oauth2/token";
-
-    public PolarController(IHttpClientFactory httpClientFactory, DbManager dbManager, IConfiguration configuration)
-    {
-        _httpClient = httpClientFactory.CreateClient();
-        _dbManager = dbManager;
-        _clientId = configuration["Polar:ClientId"]
-            ?? throw new InvalidOperationException("Polar:ClientId fehlt in den User-Secrets.");
-        _clientSecret = configuration["Polar:ClientSecret"]
-            ?? throw new InvalidOperationException("Polar:ClientSecret fehlt in den User-Secrets.");
-    }
+    // Aus den .NET User-Secrets: dotnet user-secrets set "Polar:ClientSecret" "..."
+    private string ClientId => configuration["Polar:ClientId"] ?? throw new InvalidOperationException("Polar:ClientId fehlt in den User-Secrets.");
+    private string ClientSecret => configuration["Polar:ClientSecret"] ?? throw new InvalidOperationException("Polar:ClientSecret fehlt in den User-Secrets.");
 
     [HttpGet("status")]
-    public async Task<IActionResult> Status([FromQuery] string email)
+    public async Task<IActionResult> Status(string email)
     {
-        if (string.IsNullOrWhiteSpace(email))
-            return BadRequest("E-Mail-Adresse fehlt.");
-
-        var user = await _dbManager.FindUserByEmailAsync(email);
-        if (user == null)
-            return NotFound("User nicht gefunden");
-
-        return Ok(new { connected = !string.IsNullOrEmpty(user.PolarAccessToken) });
+        var user = await dbManager.FindUserByEmailAsync(email);
+        return user == null
+            ? NotFound("User nicht gefunden")
+            : Ok(new { connected = !string.IsNullOrEmpty(user.PolarAccessToken) });
     }
 
+    // Leitet zum Polar-Login weiter; die E-Mail reist Base64Url-kodiert im state mit
     [HttpGet("connect")]
-    public IActionResult Connect([FromQuery] string email)
+    public IActionResult Connect(string email)
     {
-        if (string.IsNullOrWhiteSpace(email))
-            return BadRequest("E-Mail-Adresse fehlt.");
-
-        var query = new Dictionary<string, string?>
+        var polarLoginUrl = QueryHelpers.AddQueryString(AuthorizationUrl, new Dictionary<string, string?>
         {
             ["response_type"] = "code",
-            ["client_id"] = _clientId,
+            ["client_id"] = ClientId,
             ["redirect_uri"] = RedirectUri,
             ["scope"] = "accesslink.read_all",
-            // E-Mail Base64Url-kodieren, damit keine Sonderzeichen (@, .) in der URL landen
             ["state"] = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(email))
-        };
-
-        var polarAuthUrl = QueryHelpers.AddQueryString(AuthorizationUrl, query);
-        return Redirect(polarAuthUrl);
-    }
-
-    // 2. Der offizielle Callback, den du bei Polar hinterlegt hast (https://localhost:7262/api/polar/callback)
-    [HttpGet("callback")]
-    public async Task<IActionResult> Callback([FromQuery] string? code, [FromQuery] string? state, [FromQuery] string? error)
-    {
-        if (!string.IsNullOrEmpty(error))
-            return Redirect($"{FrontendUrl}/polar?error={Uri.EscapeDataString(error)}");
-
-        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
-            return BadRequest("Code oder State fehlt.");
-
-        string email;
-        try
-        {
-            email = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(state));
-        }
-        catch (FormatException)
-        {
-            return BadRequest("Ungültiger State.");
-        }
-
-        var request = new HttpRequestMessage(HttpMethod.Post, TokenUrl);
-        var authHeader = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_clientId}:{_clientSecret}"));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", authHeader);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["grant_type"] = "authorization_code",
-            ["code"] = code,
-            ["redirect_uri"] = RedirectUri
         });
 
-        var response = await _httpClient.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-        {
-            Console.WriteLine($"Token-Fehler ({(int)response.StatusCode}): {body}");
-            return Redirect($"{FrontendUrl}/polar?error=token_exchange_failed");
-        }
-
-        using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
-        string accessToken = root.GetProperty("access_token").GetString()!;
-
-        // x_user_id liefert nur der V3-Token-Endpoint
-        if (!root.TryGetProperty("x_user_id", out var userIdElement) ||
-            !long.TryParse(userIdElement.ToString(), out long polarUserId))
-        {
-            Console.WriteLine($"Token-Antwort ohne gültige x_user_id: {body}");
-            return Redirect($"{FrontendUrl}/polar?error=missing_user_id");
-        }
-
-        var user = await _dbManager.FindUserByEmailAsync(email);
-        if (user == null)
-            return Redirect($"{FrontendUrl}/polar?error=user_not_found");
-
-        user.PolarAccessToken = accessToken;
-        user.PolarUserId = polarUserId.ToString();
-        await _dbManager.UpdateUserAsync(user);
-
-        await RegisterUserAtPolar(accessToken, polarUserId);
-
-        return Redirect($"{FrontendUrl}/dashboard?polar=connected");
+        return Redirect(polarLoginUrl);
     }
 
-    [HttpPost("disconnect")]
-    public async Task<IActionResult> Disconnect([FromQuery] string email)
+    // Polar ruft nach dem Login hierher zurück: Code gegen Token tauschen, speichern und User bei AccessLink registrieren
+    [HttpGet("callback")]
+    public async Task<IActionResult> Callback(string? code, string? state, string? error)
     {
-        if (string.IsNullOrWhiteSpace(email))
-            return BadRequest("E-Mail-Adresse fehlt.");
+        if (!string.IsNullOrEmpty(error) || string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
+            return Redirect($"{FrontendUrl}/?polar=error");
 
-        var user = await _dbManager.FindUserByEmailAsync(email);
+        var email = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(state));
+        var user = await dbManager.FindUserByEmailAsync(email);
+        if (user == null)
+            return Redirect($"{FrontendUrl}/?polar=error");
+
+        var tokenRequest = new HttpRequestMessage(HttpMethod.Post, TokenUrl)
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["code"] = code,
+                ["redirect_uri"] = RedirectUri
+            })
+        };
+        tokenRequest.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{ClientId}:{ClientSecret}")));
+        tokenRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var tokenResponse = await httpClientFactory.CreateClient().SendAsync(tokenRequest);
+        var tokenBody = await tokenResponse.Content.ReadAsStringAsync();
+
+        if (!tokenResponse.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"Token-Fehler ({(int)tokenResponse.StatusCode}): {tokenBody}");
+            return Redirect($"{FrontendUrl}/?polar=error");
+        }
+
+        using var tokenJson = JsonDocument.Parse(tokenBody);
+        user.PolarAccessToken = tokenJson.RootElement.GetProperty("access_token").GetString();
+        user.PolarUserId = tokenJson.RootElement.GetProperty("x_user_id").ToString();
+        await dbManager.SaveChangesAsync();
+
+        // Ohne Registrierung liefert Polar keine Daten (403). 409 = schon registriert, auch ok.
+        var registerResponse = await polarClient.SendAsync(HttpMethod.Post, "users", user.PolarAccessToken!,
+            JsonContent.Create(new Dictionary<string, string> { ["member-id"] = user.PolarUserId }));
+        if (!registerResponse.IsSuccessStatusCode && registerResponse.StatusCode != HttpStatusCode.Conflict)
+            Console.WriteLine($"Polar-Registrierung fehlgeschlagen ({(int)registerResponse.StatusCode}): {await registerResponse.Content.ReadAsStringAsync()}");
+
+        return Redirect($"{FrontendUrl}/?polar=connected");
+    }
+
+    // User bei Polar abmelden und Token löschen; lokal wird immer getrennt, auch wenn Polar den User nicht mehr kennt
+    [HttpPost("disconnect")]
+    public async Task<IActionResult> Disconnect(string email)
+    {
+        var user = await dbManager.FindUserByEmailAsync(email);
         if (user == null)
             return NotFound("User nicht gefunden");
 
-        if (!string.IsNullOrEmpty(user.PolarAccessToken) && !string.IsNullOrEmpty(user.PolarUserId))
-            await DeregisterUserAtPolar(user.PolarAccessToken, user.PolarUserId);
+        if (user.PolarAccessToken != null && user.PolarUserId != null)
+        {
+            var deleteResponse = await polarClient.SendAsync(HttpMethod.Delete, $"users/{user.PolarUserId}", user.PolarAccessToken);
+            Console.WriteLine($"Polar-Abmeldung: {deleteResponse.StatusCode}");
+        }
 
-        // Lokal immer trennen, auch wenn Polar den User nicht (mehr) kennt
         user.PolarAccessToken = null;
         user.PolarUserId = null;
-        await _dbManager.UpdateUserAsync(user);
+        await dbManager.SaveChangesAsync();
 
         return Ok(new { connected = false });
-    }
-
-    private async Task DeregisterUserAtPolar(string accessToken, string polarUserId)
-    {
-        try
-        {
-            var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"https://www.polaraccesslink.com/v3/users/{polarUserId}");
-            deleteRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-            var deleteResponse = await _httpClient.SendAsync(deleteRequest);
-            Console.WriteLine($"Polar Abmeldung: {deleteResponse.StatusCode}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Fehler bei der Polar-Abmeldung: {ex.Message}");
-        }
-    }
-
-    private async Task RegisterUserAtPolar(string accessToken, long polarUserId)
-    {
-        try
-        {
-            var registerRequest = new HttpRequestMessage(HttpMethod.Post, "https://www.polaraccesslink.com/v3/users");
-            registerRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            registerRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            // Polar erwartet "member-id" (mit Bindestrich), deshalb ein Dictionary statt anonymem Objekt
-            var jsonPayload = JsonSerializer.Serialize(new Dictionary<string, string> { ["member-id"] = polarUserId.ToString() });
-            registerRequest.Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-
-            var regResponse = await _httpClient.SendAsync(registerRequest);
-
-            // 409 Conflict = User ist schon registriert, das ist in Ordnung
-            if (regResponse.IsSuccessStatusCode || regResponse.StatusCode == System.Net.HttpStatusCode.Conflict)
-                Console.WriteLine($"Polar Registrierung ok: {regResponse.StatusCode}");
-            else
-                Console.WriteLine($"Polar Registrierung fehlgeschlagen ({(int)regResponse.StatusCode}): {await regResponse.Content.ReadAsStringAsync()}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Fehler bei der Polar-User-Registrierung: {ex.Message}");
-        }
     }
 }

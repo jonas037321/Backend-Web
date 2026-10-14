@@ -81,14 +81,4 @@ public class PolarSleepNightDto
 
     [JsonPropertyName("heart_rate_samples")]
     public Dictionary<string, int>? HeartRateSamples { get; set; }
-
-    [JsonIgnore]
-    public int? LatestHeartRate => HeartRateSamples is null || HeartRateSamples.Count == 0
-        ? null
-        : HeartRateSamples.Values.Max();
-
-    [JsonIgnore]
-    public int? AverageHeartRate => HeartRateSamples is null || HeartRateSamples.Count == 0
-        ? null
-        : (int)Math.Round(HeartRateSamples.Values.Average());
 }

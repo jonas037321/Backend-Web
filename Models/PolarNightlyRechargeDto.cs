@@ -2,6 +2,12 @@ using System.Text.Json.Serialization;
 
 namespace Models;
 
+public class PolarNightlyRechargeRootObject
+{
+    [JsonPropertyName("recharges")]
+    public List<PolarNightlyRechargeDto> Recharges { get; set; } = new();
+}
+
 public class PolarNightlyRechargeDto
 {
     [JsonPropertyName("date")]

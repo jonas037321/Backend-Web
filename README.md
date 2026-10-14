@@ -6,7 +6,9 @@ ASP.NET Core Web API (.NET 10) für die Health-Companion-App. Verwaltet Benutzer
 
 ```
 backend/
-├── Api/      Web API: Controller, Program.cs, appsettings.json
+├── Api/      Web API: Program.cs, appsettings.json
+│   ├── Controllers/  AuthController (Login/Registrierung), PolarController (OAuth), PolarDataController (alle Daten)
+│   └── Services/     PolarClient (Aufrufe an Polar), ExerciseDetailBuilder (Höhenmeter, Verläufe)
 ├── Models/   User + DTOs für die Polar-Antworten
 └── ORM/      DbManager (EF Core DbContext) + Migrationen
 ```
@@ -36,9 +38,13 @@ dotnet run --project Api/Api.csproj --launch-profile https
 | GET | `/api/physicalinfo/{email}` | Körperdaten |
 | GET | `/api/sleep/{email}` | Schlaf (letzte 5 Nächte) |
 | GET | `/api/nightlyrecharge/{email}` | Nightly Recharge |
-| GET | `/api/exercises/{email}` | Trainings des letzten Monats |
+| GET | `/api/exercises/{email}` | Trainings der letzten 30 Tage |
+| GET | `/api/exercises/{email}/{exerciseId}` | Trainingsdetails mit Höhenmetern, Verläufen, Pulszonen und Route |
+| POST | `/api/polar/disconnect?email=` | User bei Polar abmelden und Token löschen |
 
-Alle Daten-Endpoints laden den Polar-Token des Users aus der Datenbank und rufen damit die Polar API auf.
+Alle Daten-Endpoints liegen im `PolarDataController`: Sie laden den Polar-Token des Users aus der Datenbank und rufen damit über den `PolarClient` die Polar API auf.
+
+Migrationen werden mit `Api` als Startprojekt erstellt, z. B. `dotnet ef migrations add Name --project ORM --startup-project Api`.
 
 ## Polar-Konfiguration
 

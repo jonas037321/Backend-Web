@@ -1,3 +1,4 @@
+using Api.Services;
 using Microsoft.EntityFrameworkCore;
 using ORM;
 
@@ -6,11 +7,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddHttpClient();
-// Polar verlangt bei allen API-Requests einen User-Agent-Header
+// Polar verlangt bei allen Requests einen User-Agent-Header
 builder.Services.ConfigureHttpClientDefaults(httpClientBuilder =>
     httpClientBuilder.ConfigureHttpClient(client =>
         client.DefaultRequestHeaders.UserAgent.ParseAdd("PolarHealthCompanion/1.0")));
+builder.Services.AddHttpClient<PolarClient>(client =>
+    client.BaseAddress = new Uri("https://www.polaraccesslink.com/v3/"));
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection fehlt in appsettings.json.");
@@ -18,16 +20,8 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<DbManager>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
 
-
 builder.Services.AddCors(options =>
-{
-    options.AddPolicy("VueClient", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
-});
+    options.AddPolicy("VueClient", policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
 var app = builder.Build();
 
@@ -37,11 +31,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Legt die Datenbank samt users-Tabelle an, falls sie noch nicht existiert
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<DbManager>();
-    // Keep startup initialization so auth can use DbManager helpers and the users table.
-    db.Database.EnsureCreated();
+    scope.ServiceProvider.GetRequiredService<DbManager>().Database.EnsureCreated();
 }
 
 app.UseCors("VueClient");
